@@ -4,34 +4,46 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Post;
-use App\Models\PostLog;
 use Illuminate\Support\Facades\Auth;
 
-class PostController extends Controller
+class WebPostController extends Controller
 {
     /**
-     * Display a listing of the resource.
+     * Display a listing of posts depending on role.
      */
     public function index()
     {
         $user = Auth::user();
 
         if ($user->role === 'author') {
-            return response()->json(Post::where('user_id', $user->id)->with(['user', 'approvedBy', 'logs'])->get());
+            $posts = Post::where('user_id', $user->id)->with(['approvedBy'])->latest()->paginate(10);
+        } else {
+            // Managers and Admins
+            $posts = Post::with(['user', 'approvedBy'])->latest()->paginate(10);
         }
 
-        // Managers and Admins can view all posts
-        return response()->json(Post::with(['user', 'approvedBy', 'logs'])->get());
+        return view('posts.index', compact('posts', 'user'));
     }
 
     /**
-     * Store a newly created resource in storage.
+     * Show the form for creating a new post (Authors only)
+     */
+    public function create()
+    {
+        if (Auth::user()->role !== 'author') {
+            abort(403, 'Only authors can create posts.');
+        }
+
+        return view('posts.create');
+    }
+
+    /**
+     * Store a newly created post.
      */
     public function store(Request $request)
     {
-        $user = Auth::user();
-        if ($user->role !== 'author') {
-            return response()->json(['message' => 'Unauthorized. Only authors can create posts.'], 403);
+        if (Auth::user()->role !== 'author') {
+            abort(403);
         }
 
         $request->validate([
@@ -46,40 +58,56 @@ class PostController extends Controller
             'status' => 'pending',
         ]);
 
-        PostLog::create([
+        \App\Models\PostLog::create([
             'post_id' => $post->id,
             'user_id' => Auth::id(),
             'action' => 'created'
         ]);
 
-        return response()->json($post, 201);
+        return redirect()->route('dashboard')->with('success', 'Post created successfully!');
     }
 
     /**
-     * Display the specified resource.
+     * Display the specified post to view/approve/reject
      */
-    public function show(string $id)
+    public function show($id)
     {
-        $post = Post::with(['user', 'approvedBy', 'logs'])->findOrFail($id);
+        $post = Post::with(['user', 'approvedBy', 'logs.user'])->findOrFail($id);
         $user = Auth::user();
 
+        // Check view perm
         if ($user->role === 'author' && $post->user_id !== $user->id) {
-            return response()->json(['message' => 'Unauthorized.'], 403);
+            abort(403, 'Unauthorized viewing.');
         }
 
-        return response()->json($post);
+        return view('posts.show', compact('post', 'user'));
     }
 
     /**
-     * Update the specified resource in storage.
+     * Show the form for editing the specified post
      */
-    public function update(Request $request, string $id)
+    public function edit($id)
     {
         $post = Post::findOrFail($id);
         $user = Auth::user();
 
-        if ($post->user_id !== $user->id) {
-            return response()->json(['message' => 'Unauthorized. You can only update your own posts.'], 403);
+        if ($user->role !== 'author' || $post->user_id !== $user->id) {
+            abort(403, 'You can only edit your own posts.');
+        }
+
+        return view('posts.edit', compact('post'));
+    }
+
+    /**
+     * Update the post
+     */
+    public function update(Request $request, $id)
+    {
+        $post = Post::findOrFail($id);
+        $user = Auth::user();
+
+        if ($user->role !== 'author' || $post->user_id !== $user->id) {
+            abort(403);
         }
 
         $request->validate([
@@ -90,28 +118,28 @@ class PostController extends Controller
         $post->update([
             'title' => $request->title,
             'body' => $request->body,
-            'status' => 'pending', // Revert to pending when updated
+            'status' => 'pending',
             'approved_by' => null,
             'rejected_reason' => null
         ]);
 
-        PostLog::create([
+        \App\Models\PostLog::create([
             'post_id' => $post->id,
             'user_id' => $user->id,
             'action' => 'updated'
         ]);
 
-        return response()->json($post);
+        return redirect()->route('dashboard')->with('success', 'Post updated and set to pending.');
     }
 
     /**
-     * Approve the post.
+     * Approve
      */
-    public function approve(Request $request, string $id)
+    public function approve(Request $request, $id)
     {
         $user = Auth::user();
         if (!in_array($user->role, ['manager', 'admin'])) {
-            return response()->json(['message' => 'Unauthorized.'], 403);
+            abort(403);
         }
 
         $post = Post::findOrFail($id);
@@ -121,23 +149,23 @@ class PostController extends Controller
             'rejected_reason' => null
         ]);
 
-        PostLog::create([
+        \App\Models\PostLog::create([
             'post_id' => $post->id,
             'user_id' => $user->id,
             'action' => 'approved'
         ]);
 
-        return response()->json($post);
+        return back()->with('success', 'Post approved.');
     }
 
     /**
-     * Reject the post.
+     * Reject
      */
-    public function reject(Request $request, string $id)
+    public function reject(Request $request, $id)
     {
         $user = Auth::user();
         if (!in_array($user->role, ['manager', 'admin'])) {
-            return response()->json(['message' => 'Unauthorized.'], 403);
+            abort(403);
         }
 
         $request->validate([
@@ -151,28 +179,28 @@ class PostController extends Controller
             'approved_by' => null
         ]);
 
-        PostLog::create([
+        \App\Models\PostLog::create([
             'post_id' => $post->id,
             'user_id' => $user->id,
             'action' => 'rejected'
         ]);
 
-        return response()->json($post);
+        return back()->with('success', 'Post rejected.');
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Delete
      */
-    public function destroy(string $id)
+    public function destroy($id)
     {
         $user = Auth::user();
         if ($user->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized. Only admins can delete.'], 403);
+            abort(403);
         }
 
         $post = Post::findOrFail($id);
-        
-        PostLog::create([
+
+        \App\Models\PostLog::create([
             'post_id' => $post->id,
             'user_id' => $user->id,
             'action' => 'deleted'
@@ -180,6 +208,6 @@ class PostController extends Controller
 
         $post->delete();
 
-        return response()->json(['message' => 'Post deleted successfully.']);
+        return redirect()->route('dashboard')->with('success', 'Post deleted.');
     }
 }
