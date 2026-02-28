@@ -19,7 +19,7 @@ Follow these instructions to get the application running on your local machine.
 ### Prerequisites
 - PHP 8.2 or higher
 - Composer
-- MySQL or SQLite
+- MySQL
 
 ### 1. Clone the Repository
 ```bash
@@ -39,7 +39,7 @@ Copy the example environment file and generate your application encryption key:
 cp .env.example .env
 php artisan key:generate
 ```
-*Configure your `.env` file with your database credentials (e.g., `DB_CONNECTION=sqlite` or `mysql`).*
+*Configure your `.env` file with your database credentials (e.g., `DB_CONNECTION=mysql`).*
 
 ### 4. Database Migration & Seeding
 This will create the necessary tables and seed the database with test users:
@@ -85,6 +85,3 @@ A complete set of API endpoints has been built into the system. For full technic
 - `POST /api/posts/{id}/approve` - Approve post (Managers/Admins only)
 - `POST /api/posts/{id}/reject` - Reject post (Managers/Admins only)
 - `DELETE /api/posts/{id}` - Delete post (Admins only)
-
-## License
-Open-source software licensed under the [MIT license](https://opensource.org/licenses/MIT).
